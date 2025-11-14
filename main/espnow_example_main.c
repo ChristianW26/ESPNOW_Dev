@@ -31,16 +31,18 @@
 #include "esp_crc.h"
 #include "espnow_example.h"
 
-#define ESPNOW_MAXDELAY 512
-
 static const char *TAG = "espnow_example";
 
-// #define MAC2STRPTR(a) &(a)[0], &(a)[1], &(a)[2], &(a)[3], &(a)[4], &(a)[5]
-
+/* ----------------------------------- Private Global Variables ----------------------------------- */
 static uint8_t s_broadcast_mac[ESP_NOW_ETH_ALEN] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
-// static uint8_t s_receiver_mac[ESP_NOW_ETH_ALEN];
-// sscanf(CONFIG_RX_MAC_ADDR, MACSTR, MAC2STRPTR(s_receiver_mac)); 
-// static uint8_t s_transmitter_mac[ESP_NOW_ETH_ALEN] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
+static uint8_t s_rx_mac[ESP_NOW_ETH_ALEN];
+static uint8_t s_tx_mac[ESP_NOW_ETH_ALEN];
+
+/* ----------------------------------- Private Functions ----------------------------------- */
+static void mac_str_to_bytes(char *mac_str, uint8_t *mac_bytes) {
+    sscanf(mac_str, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx", 
+        mac_bytes, mac_bytes+1, mac_bytes+2, mac_bytes+3, mac_bytes+4, mac_bytes+5); 
+}
 
 /* WiFi should start before using ESPNOW */
 static void example_wifi_init(void)
@@ -95,18 +97,18 @@ static void example_espnow_task(void *pvParameter)
 {
     for (;;) {
         #ifdef CONFIG_TX_DEVICE
-        char data_buf[MSG_SIZE];
-        strncpy(data_buf, "Test", MSG_SIZE);
-        if (esp_now_send(s_broadcast_mac, (uint8_t *) data_buf, MSG_SIZE*sizeof(char)) != ESP_OK) {
-            ESP_LOGE(TAG, "Send error");
-            vTaskDelete(NULL);
+        char data_buf[CONFIG_MSG_LENGTH];
+        strncpy(data_buf, CONFIG_MSG_DATA, CONFIG_MSG_LENGTH);
+        esp_err_t status = esp_now_send(s_broadcast_mac, (uint8_t *) data_buf, CONFIG_MSG_LENGTH);
+        if (status != ESP_OK) {
+            ESP_LOGE(TAG, "Send error: %s", esp_err_to_name(status));
         }
-        vTaskDelay(500 / portTICK_PERIOD_MS);
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
         #endif
 
         #ifdef CONFIG_RX_DEVICE
         ESP_LOGI(TAG, "Waiting");
-        vTaskDelay(500 / portTICK_PERIOD_MS); 
+        vTaskDelay(1000 / portTICK_PERIOD_MS); 
         #endif
     }
 }
@@ -135,13 +137,27 @@ static esp_err_t example_espnow_init(void)
     peer->channel = CONFIG_ESPNOW_CHANNEL;
     peer->ifidx = ESPNOW_WIFI_IF;
     peer->encrypt = false;
-    memcpy(peer->peer_addr, s_broadcast_mac, ESP_NOW_ETH_ALEN);
+
+    /* Set peer MAC addr */
+    char tx_mac_str[] = CONFIG_TX_MAC_ADDR; 
+    char rx_mac_str[] = CONFIG_RX_MAC_ADDR; 
+    mac_str_to_bytes(tx_mac_str, s_tx_mac); 
+    mac_str_to_bytes(rx_mac_str, s_rx_mac); 
+    #ifdef CONFIG_TX_DEVICE
+        memcpy(peer->peer_addr, s_rx_mac, ESP_NOW_ETH_ALEN);
+    #elif defined(CONFIG_RX_DEVICE)
+        memcpy(peer->peer_addr, s_tx_mac, ESP_NOW_ETH_ALEN);
+    #else 
+        memcpy(peer->peer_addr, s_broadcast_mac, ESP_NOW_ETH_ALEN);
+    #endif 
+
     ESP_ERROR_CHECK( esp_now_add_peer(peer) );
     free(peer);
 
     return ESP_OK;
 }
 
+/* ----------------------------------- Entry Point ----------------------------------- */
 void app_main(void)
 {
     // Initialize NVS
@@ -156,4 +172,8 @@ void app_main(void)
     example_espnow_init();
     
     xTaskCreate(example_espnow_task, "example_espnow_task", 2048, NULL, 4, NULL);
+
+    for (;;) {
+        vTaskDelay(2); 
+    }
 }

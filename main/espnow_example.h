@@ -19,9 +19,9 @@
 #define ESPNOW_WIFI_IF   ESP_IF_WIFI_AP
 #endif
 
-#define ESPNOW_QUEUE_SIZE           6
-
-#define MSG_SIZE 16
+/* Select if this is a transmitter or receiver */
+#define TX_DEVICE
+// #define RX_DEVICE
 
 #define IS_BROADCAST_ADDR(addr) (memcmp(addr, s_broadcast_mac, ESP_NOW_ETH_ALEN) == 0)
 
